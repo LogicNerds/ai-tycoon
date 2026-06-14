@@ -204,18 +204,161 @@
 
 <script>
 // ============================================================
-// MUSIC STUBS
+// AUDIO
 // ============================================================
+const MUSIC_URL = 'https://raw.githubusercontent.com/LogicNerds/ai-tycoon/main/ai-tycoon-assets/AI-Tycoon-ext.mp3';
+
+let audioCtx = null;
+let musicSource = null;
+let musicBuffer = null;
+let musicGain = null;
+let musicLoaded = false;
+let musicStartTime = 0;
+let musicOffset = 0;
+let currentPlaybackRate = 1.0;
+
+function getAudioCtx() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    musicGain = audioCtx.createGain();
+    musicGain.gain.value = 0.7;
+    musicGain.connect(audioCtx.destination);
+  }
+  return audioCtx;
+}
+
+async function loadMusic() {
+  if (musicLoaded) return;
+  try {
+    const ctx = getAudioCtx();
+    const response = await fetch(MUSIC_URL);
+    const arrayBuffer = await response.arrayBuffer();
+    musicBuffer = await ctx.decodeAudioData(arrayBuffer);
+    musicLoaded = true;
+  } catch (e) {
+    console.warn('[MUSIC] Failed to load:', e);
+  }
+}
+
+function playMusicAt(offset, rate) {
+  if (!musicLoaded || !musicBuffer) return;
+  const ctx = getAudioCtx();
+  if (musicSource) {
+    try { musicSource.stop(); } catch(e) {}
+    musicSource = null;
+  }
+  musicSource = ctx.createBufferSource();
+  musicSource.buffer = musicBuffer;
+  musicSource.loop = true;
+  musicSource.playbackRate.value = rate;
+  musicSource.connect(musicGain);
+  musicSource.start(0, offset % musicBuffer.duration);
+  musicStartTime = ctx.currentTime;
+  musicOffset = offset % musicBuffer.duration;
+  currentPlaybackRate = rate;
+}
+
 function startMusic() {
-  // Hook up your audio here — called when player picks their character
-  console.log('[MUSIC] startMusic()');
+  getAudioCtx().resume();
+  loadMusic().then(() => {
+    playMusicAt(0, 1.0);
+  });
 }
+
 function startBossMusic() {
-  // Called when boss arrives — swap to faster track
-  console.log('[MUSIC] startBossMusic()');
+  if (!musicLoaded || !musicBuffer) return;
+  // Calculate current position in track
+  const ctx = getAudioCtx();
+  const elapsed = (ctx.currentTime - musicStartTime) * currentPlaybackRate;
+  const currentPos = (musicOffset + elapsed) % musicBuffer.duration;
+  playMusicAt(currentPos, 1.45); // speed up ~45%
 }
+
 function stopMusic() {
-  console.log('[MUSIC] stopMusic()');
+  if (musicSource) {
+    try { musicSource.stop(); } catch(e) {}
+    musicSource = null;
+  }
+}
+
+// ============================================================
+// SOUND EFFECTS (Web Audio API chiptune)
+// ============================================================
+function sfxGoodItem() {
+  try {
+    const ctx = getAudioCtx();
+    const now = ctx.currentTime;
+    // Short ascending two-tone blip
+    [523, 784].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'square';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.18, now + i * 0.07);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.07 + 0.1);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now + i * 0.07);
+      osc.stop(now + i * 0.07 + 0.12);
+    });
+  } catch(e) {}
+}
+
+function sfxBadItem() {
+  try {
+    const ctx = getAudioCtx();
+    const now = ctx.currentTime;
+    // Descending buzz
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(300, now);
+    osc.frequency.exponentialRampToValueAtTime(80, now + 0.25);
+    gain.gain.setValueAtTime(0.22, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.3);
+  } catch(e) {}
+}
+
+function sfxShoot() {
+  try {
+    const ctx = getAudioCtx();
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(880, now);
+    osc.frequency.exponentialRampToValueAtTime(440, now + 0.08);
+    gain.gain.setValueAtTime(0.12, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.12);
+  } catch(e) {}
+}
+
+function sfxDestroy() {
+  try {
+    const ctx = getAudioCtx();
+    const now = ctx.currentTime;
+    // Ascending blip + crunch
+    [440, 660, 880].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'square';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.15, now + i * 0.05);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.05 + 0.08);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now + i * 0.05);
+      osc.stop(now + i * 0.05 + 0.1);
+    });
+  } catch(e) {}
 }
 
 // ============================================================
@@ -446,6 +589,7 @@ const PROJ_WORDS_DENY  = ['Human','Community','Craft','Experience','Empathy','So
 function fireProjectile() {
   if (player.shootCooldown > 0) return;
   player.shootCooldown = 0.35;
+  sfxShoot();
   const words = faction === 'shill' ? PROJ_WORDS_SHILL : PROJ_WORDS_DENY;
   projectiles.push({
     x: player.x + (player.facing === 1 ? PLAYER_W : 0),
@@ -637,6 +781,7 @@ function updateItems(dt) {
           if (combo > maxCombo) maxCombo = combo;
           scrollSpeed += 0.05;
           spawnRate += 0.002;
+          sfxGoodItem();
           addFloaty(`+$${v}`, item.x, item.y - 10, '#00ff88');
         } else if (isBadItem(item.key)) {
           const v = getItemValue(item.key);
@@ -649,6 +794,7 @@ function updateItems(dt) {
             combo = 0;
             scrollSpeed += 0.15;
             spawnRate += 0.008;
+            sfxBadItem();
             addFloaty(`-$${v}`, item.x, item.y - 10, '#ff4444');
           }
         }
@@ -676,6 +822,7 @@ function updateItems(dt) {
           itemsDestroyed++;
           combo++;
           if (combo > maxCombo) maxCombo = combo;
+          sfxDestroy();
           addFloaty(`+$${reward} DESTROYED!`, item.x, item.y - 10, '#ffff00');
           items.splice(ii, 1);
           projectiles.splice(pi, 1);
@@ -806,6 +953,7 @@ function updateBoss(dt) {
       player.invincible = 0.8;
       player.hitFlash = 0.8;
       combo = 0;
+      sfxBadItem();
       addFloaty(`-$${a.damage}`, player.x, player.y - 20, '#ff4444');
       bossAttacks.splice(i, 1);
       continue;
@@ -825,6 +973,7 @@ function updateBoss(dt) {
         itemsDestroyed++;
         combo++;
         if (combo > maxCombo) maxCombo = combo;
+        sfxDestroy();
         addFloaty(`+$${earned} -${dmg}HP`, a.x, a.y - 10, '#ffff00');
         bossAttacks.splice(i, 1);
         projectiles.splice(pi, 1);
