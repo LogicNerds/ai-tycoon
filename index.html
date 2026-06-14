@@ -670,8 +670,14 @@ function spawnItem() {
   }
 
   const def = ITEM_DEFS[key];
-  const heights = [GROUND_Y - 30, GROUND_Y - 120, GROUND_Y - 200];
-  const yPos = heights[Math.floor(Math.random() * heights.length)] - 32;
+  // Ground level: item bottom (y + size) should sit at GROUND_Y
+  // Mid platform: ~120px up, High: ~210px up
+  const heights = [
+    GROUND_Y - 32,        // ground level
+    GROUND_Y - 32 - 110, // mid platform
+    GROUND_Y - 32 - 200, // high platform
+  ];
+  const yPos = heights[Math.floor(Math.random() * heights.length)];
   const spawnX = W + 40;
 
   // Enforce minimum horizontal gap of 80px from any existing item
@@ -867,13 +873,14 @@ function initBoss() {
   bossAttacks = [];
 
   // Place boss on the ground, right side of screen
+  // boss.y is top of sprite; feet = boss.y + boss.h; must equal GROUND_Y
   const bossGroundY = GROUND_Y - boss.h;
   boss.x = W + 80;
   boss.y = bossGroundY;
   boss.hp = 100;
   boss.phase = 1;
   boss.pivoted = false;
-  boss.attackTimer = 2; // brief delay before first attack
+  boss.attackTimer = 2;
   boss.currentAttack = -1;
   boss.entered = false;
   boss.defeated = false;
@@ -934,6 +941,34 @@ function updateBoss(dt) {
   // Boss dialogue timer
   if (boss.dialogueTimer > 0) boss.dialogueTimer -= dt;
 
+  // Player projectiles hit boss body directly
+  for (let pi = projectiles.length - 1; pi >= 0; pi--) {
+    const proj = projectiles[pi];
+    if (boss.entered && !boss.defeated &&
+        proj.x > boss.x && proj.x < boss.x + boss.w &&
+        proj.y > boss.y && proj.y < boss.y + boss.h) {
+      const dmg = 5;
+      boss.hp -= dmg;
+      const earned = 25 * (1 + Math.floor(combo / 3));
+      money += earned;
+      itemsDestroyed++;
+      combo++;
+      if (combo > maxCombo) maxCombo = combo;
+      sfxDestroy();
+      addFloaty(`-${dmg}HP  +$${earned}`, boss.x + boss.w/2, boss.y - 10, '#ffff00');
+      projectiles.splice(pi, 1);
+      if (boss.hp <= 0) {
+        boss.hp = 0;
+        boss.defeated = true;
+        boss.explodeTimer = 2.5;
+        bossDefeated = true;
+        addFloaty('BOSS DEFEATED!', W/2 - 60, PLAY_H/2, '#ffe600');
+        setTimeout(() => { gameState = STATE.RESULTS; }, 3000);
+      }
+      continue;
+    }
+  }
+
   // Update boss attack projectiles
   for (let i = bossAttacks.length - 1; i >= 0; i--) {
     const a = bossAttacks[i];
@@ -959,32 +994,21 @@ function updateBoss(dt) {
       continue;
     }
 
-    // Player projectile hits boss attack?
+    // Player projectile shoots down incoming boss attack (defensive — no HP damage)
     let destroyed = false;
     for (let pi = projectiles.length - 1; pi >= 0; pi--) {
       const proj = projectiles[pi];
-      if (proj.x > a.x && proj.x < a.x + 34 &&
-          proj.y > a.y && proj.y < a.y + 34) {
-        const dmg = a.bossHP || 1;
-        boss.hp -= dmg;
-        const reward = a.reward || 25;
-        const earned = reward * (1 + Math.floor(combo / 3));
+      if (proj.x > a.x - 8 && proj.x < a.x + 44 &&
+          proj.y > a.y - 8 && proj.y < a.y + 44) {
+        const earned = (a.reward || 25) * (1 + Math.floor(combo / 3));
         money += earned;
-        itemsDestroyed++;
         combo++;
         if (combo > maxCombo) maxCombo = combo;
         sfxDestroy();
-        addFloaty(`+$${earned} -${dmg}HP`, a.x, a.y - 10, '#ffff00');
+        addFloaty(`BLOCKED! +$${earned}`, a.x, a.y - 10, '#00ffaa');
         bossAttacks.splice(i, 1);
         projectiles.splice(pi, 1);
         destroyed = true;
-        if (boss.hp <= 0) {
-          boss.defeated = true;
-          boss.explodeTimer = 2.5;
-          bossDefeated = true;
-          addFloaty('BOSS DEFEATED!', W/2 - 60, PLAY_H/2, '#ffe600');
-          setTimeout(() => { gameState = STATE.RESULTS; }, 3000);
-        }
         break;
       }
     }
@@ -1027,7 +1051,7 @@ function spawnSpeechBubbles() {
         vx: (dx/dist) * speed + spread,
         vy: (dy/dist) * speed,
         life: 4, emoji: '💬', label: text,
-        damage: 75, reward: 25, bossHP: 1, bob: 0, gravity: false
+        damage: 75, reward: 25, bossHP: 5, bob: 0, gravity: false
       });
     }, i * 350);
   }
@@ -1048,7 +1072,7 @@ function spawnCourseLaunch() {
         x: boss.x + boss.w/2, y: boss.y + 20,
         vx, vy,
         life: 4, emoji: '💸', label: '$997',
-        damage: 100, reward: 50, bossHP: 2, bob: 0, gravity: true
+        damage: 100, reward: 50, bossHP: 10, bob: 0, gravity: true
       });
     }, i * 250);
   }
@@ -1069,7 +1093,7 @@ function spawnBossAttackUltimate() {
       vx: (dx/dist) * speed,
       vy: (dy/dist) * speed,
       life: 3, emoji: emojis[Math.floor(Math.random()*emojis.length)],
-      label: '', damage: 50, reward: 30, bossHP: 1, bob: 0, gravity: false
+      label: '', damage: 50, reward: 30, bossHP: 4, bob: 0, gravity: false
     });
   } else {
     // Lobbed course
@@ -1079,7 +1103,7 @@ function spawnBossAttackUltimate() {
       x: boss.x + boss.w/2, y: boss.y + 20,
       vx, vy,
       life: 4, emoji: '💸', label: '$997',
-      damage: 100, reward: 50, bossHP: 2, bob: 0, gravity: true
+      damage: 100, reward: 50, bossHP: 10, bob: 0, gravity: true
     });
   }
 }
@@ -1348,9 +1372,7 @@ function drawBoss() {
   if (boss.defeated && boss.explodeTimer <= 0) return;
 
   const x = Math.round(boss.x);
-  // Visual-only idle bob — doesn't affect collision y
-  const idleBob = boss.entered ? Math.sin(Date.now() / 500) * 3 : 0;
-  const y = Math.round(boss.y + idleBob);
+  const y = Math.round(boss.y); // no bob — stays grounded
   const W2 = boss.w, H2 = boss.h;
 
   // Explosion effect
